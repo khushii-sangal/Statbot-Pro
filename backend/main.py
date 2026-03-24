@@ -1,51 +1,62 @@
-from fastapi import FastAPI, UploadFile, File, Query
-from services.file_service import load_csv
-from agent.pandas_agent import create_agent
-from dotenv import load_dotenv
-load_dotenv()
-
+from fastapi import FastAPI, UploadFile, File
+from fastapi.middleware.cors import CORSMiddleware
+import pandas as pd
 import os
 
-api_key = os.getenv("GROQ_API_KEY")
+from agent.pandas_agent import create_agent
+
 app = FastAPI()
 
-# Temporary storage (we'll improve later)
-df_store = {}
+# Enable CORS (important for frontend later)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Create folders
+os.makedirs("data", exist_ok=True)
+os.makedirs("static", exist_ok=True)
+
 
 @app.get("/")
 def home():
-    return {"message": "CSV AI Agent Running 🚀"}
+    return {"message": "Statbot-Pro Backend Running 🚀"}
+
+uploaded_file_path = None  # global variable
+
 
 @app.post("/upload/")
-async def upload_csv(file: UploadFile = File(...)):
-    df, error = load_csv(file)
+async def upload_file(file: UploadFile = File(...)):
+    global uploaded_file_path
 
-    if error:
-        return {"error": error}
+    file_path = f"data/{file.filename}"
 
-    file_id = file.filename
-    df_store[file_id] = df
+    with open(file_path, "wb") as f:
+        f.write(await file.read())
 
-    return {
-        "message": "File uploaded successfully",
-        "file_id": file_id,
-        "columns": list(df.columns),
-        "rows": len(df)
-    }
+    uploaded_file_path = file_path  # save path
 
-@app.get("/ask/")
-def ask_question(file_id: str = Query(...), query: str = Query(...)):
-    
-    if file_id not in df_store:
-        return {"error": "Invalid file_id. Upload file first."}
+    return {"message": "File uploaded successfully", "filename": file.filename}
 
-    df = df_store[file_id]
+
+@app.post("/ask/")
+async def ask_question(question: str):
+    global uploaded_file_path
 
     try:
-        agent = create_agent(df)
-        result = agent.run(query)
+        if uploaded_file_path is None:
+            return {"error": "Please upload a CSV file first"}
 
-        return {"answer": result}
+        df = pd.read_csv(uploaded_file_path)
+
+        agent = create_agent(df)
+
+        response = agent.run(question)
+
+        return {"response": str(response)}
 
     except Exception as e:
         return {"error": str(e)}
