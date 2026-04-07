@@ -1,46 +1,67 @@
 import os
+import pandas as pd
 import matplotlib.pyplot as plt
-
 from langchain_experimental.agents import create_pandas_dataframe_agent
 from langchain_groq import ChatGroq
-from dotenv import load_dotenv
-
-load_dotenv()
 
 
-def create_agent(df):
+def create_agent(csv_path):
+    try:
+        # 📂 Load CSV
+        print("📂 Loading CSV...")
+        df = pd.read_csv(csv_path)
+        print("✅ CSV Loaded:", df.shape)
 
-    llm = ChatGroq(
-        temperature=0,
-        model_name="llama-3.1-8b-instant",
-        groq_api_key=os.getenv("GROQ_API_KEY")
-    )
-    prefix = """
-    You are a smart data analyst.
+        # 🔑 Load API key
+        api_key = os.getenv("GROQ_API_KEY")
+        if not api_key:
+            raise ValueError("GROQ_API_KEY not found. Check your .env file")
 
-    - Use pandas for calculations
-    - Use matplotlib for charts
+        print("🔑 API Key Loaded")
 
-    IMPORTANT RULES:
-    - If user asks about trends, comparisons, distribution → create a graph
-    - If user uses words like plot, graph, chart, visualize → create graph
+        # 🤖 Use WORKING Groq model
+        llm = ChatGroq(
+            api_key=api_key,
+            model="llama-3.1-8b-instant"   # ✅ latest working model
+        )
 
-    GRAPH RULES:
-    - Use matplotlib
-    - Save graph using:
-    plt.savefig("static/chart.png")
-    - Do NOT use plt.show()
-    - Always call plt.close()
+        print("🤖 LLM Initialized")
 
-    Always use dataframe 'df'.
-    """
+        # 🧠 Create Pandas Agent
+        agent = create_pandas_dataframe_agent(
+            llm,
+            df,
+            verbose=True,
+            allow_dangerous_code=True
+        )
 
-    agent = create_pandas_dataframe_agent(
-        llm,
-        df,
-        verbose=True,
-        prefix=prefix,
-        allow_dangerous_code=True
-    )
+        print("✅ Agent Ready")
 
-    return agent
+        # ✅ Clean wrapper class (no self errors)
+        class AgentWrapper:
+            def run(self, query):
+                try:
+                    print("💬 Query:", query)
+
+                    # 📊 Graph handling
+                    if "plot" in query.lower() or "graph" in query.lower():
+                        df.plot(kind="bar")
+                        os.makedirs("static", exist_ok=True)
+                        plt.savefig("static/chart.png")
+                        plt.close()
+
+                        return {"graph": True}
+
+                    # 🧠 Normal query
+                    result = agent.run(query)
+                    return result
+
+                except Exception as e:
+                    print("❌ Query Error:", str(e))
+                    return f"Error: {str(e)}"
+
+        return AgentWrapper()
+
+    except Exception as e:
+        print("❌ AGENT CREATION ERROR:", str(e))
+        raise e
